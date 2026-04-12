@@ -1,0 +1,9 @@
+weights/
+venv/
+dataset.zip
+pgvector/
+__pycache__/
+.DS_Store
+*.pth
+*.log
+test_report.txt.tmp

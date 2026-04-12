@@ -1,0 +1,101 @@
+======================================================================
+  Cat Recognition Pipeline — Accuracy & Performance Test
+======================================================================
+
+[1/4] Initializing database...
+  Database ready.
+  Gallery cleared.
+
+[2/4] Loading models (this may take a while on first run)...
+Using device: mps
+Loading GroundingDINO from weights/groundingdino_swint_ogc.pth...
+final text_encoder_type: bert-base-uncased
+Loading SAM (vit_h) from weights/sam_vit_h_4b8939.pth...
+Models loaded successfully.
+Loading DINOv2 (vitb14)...
+All models loaded.
+
+[3/4] Building gallery embeddings...
+  Gallery built: 90 embeddings stored, 0 images skipped.
+
+[4/4] Running recognition test on query images...
+No objects found for prompt: cat
+
+======================================================================
+  ACCURACY RESULTS
+======================================================================
+  Cat                       N      Top-1      Top-3
+  --------------------------------------------------
+  cat_jvpi                 10     100.0%     100.0%
+  cat_maolv                10      80.0%     100.0%
+  cat_tangyuan             10      90.0%      90.0%
+  --------------------------------------------------
+  TOTAL                    30      90.0%      96.7%
+
+  Unregistered (cat_xiaomai):  10 images, rejection rate = 100.0%
+
+======================================================================
+  TIMING (seconds, excluding first cold-start request)
+======================================================================
+  Stage            Mean    Median       P95
+  ------------------------------------------
+  Detect         2.893s    0.958s    3.753s
+  Segment        5.413s    4.245s   11.907s
+  Extract        0.048s    0.031s    0.072s
+  Search         0.027s    0.017s    0.060s
+  Total          8.381s    5.262s   18.216s
+
+  Cold start (first request): 2.28s
+
+======================================================================
+  DETAILED RESULTS
+======================================================================
+
+  --- cat_jvpi (registered) ---
+    [OK] ai_blur.png: top1=cat_jvpi dist=0.1938 time=2.28s
+    [OK] ai_fence.png: top1=cat_jvpi dist=0.1630 time=2.45s
+    [OK] frame_00016.jpg: top1=cat_jvpi dist=0.1815 time=2.32s
+    [OK] frame_00018.jpg: top1=cat_jvpi dist=0.1885 time=2.31s
+    [OK] frame_00019.jpg: top1=cat_jvpi dist=0.4936 time=2.32s
+    [OK] hug.png: top1=cat_jvpi dist=0.3805 time=2.50s
+    [OK] side.png: top1=cat_jvpi dist=0.2224 time=2.68s
+    [OK] sit.png: top1=cat_jvpi dist=0.2571 time=2.68s
+    [OK] sit_2.png: top1=cat_jvpi dist=0.2658 time=2.56s
+    [OK] {DB75BC43-4E65-4C86-A141-E251FBFD8D19}.png: top1=cat_jvpi dist=0.2330 time=2.85s
+
+  --- cat_maolv (registered) ---
+    [OK] {001FBF6C-0CED-464F-A223-5320E1ECB3F0}.png: top1=cat_maolv dist=0.3747 time=2.90s
+    [OK] {382AE075-9968-46CE-B477-DB00F8AA4BD8}.png: top1=cat_maolv dist=0.2452 time=2.92s
+    [OK] {59E2F174-8193-49C4-AD1D-9D54604C391F}.png: top1=cat_maolv dist=0.2035 time=3.03s
+    [OK] {6DD8756A-74A5-4C4A-B34E-EFA3308287DB}.png: top1=cat_maolv dist=0.4491 time=2.95s
+    [MISS] {B6188C0E-9F55-4730-8A86-4D8103D9DA02}.png: top1=cat_tangyuan dist=0.4910 time=3.97s
+    [OK] {BAA3B80C-D041-4C8F-9BE4-FF742F376849}.png: top1=cat_maolv dist=0.1693 time=3.41s
+    [OK] {D453C213-D76A-4232-83C3-92035FBBFA65}.png: top1=cat_maolv dist=0.4457 time=3.87s
+    [OK] {D80EB945-A4CD-4B4F-9589-5839D8FDFAFF}.png: top1=cat_maolv dist=0.4019 time=4.17s
+    [MISS] {DA081EC5-7D59-46B1-B250-CE22CFC06C0E}.png: top1=cat_jvpi dist=0.5148 time=4.56s
+    [OK] {DFED569A-5367-43E0-9058-381551C86761}.png: top1=cat_maolv dist=0.2842 time=5.19s
+
+  --- cat_tangyuan (registered) ---
+    [OK] {0488E0FF-B787-48CC-9ED0-4D0A2CA8C57E}.png: top1=cat_tangyuan dist=0.4899 time=5.33s
+    [OK] {5A07D46A-611F-4109-B84F-FBC471E3A4AE}.png: top1=cat_tangyuan dist=0.3914 time=6.67s
+    [OK] {8955A2BC-6054-4C1E-B3E4-4C3C540B8571}.png: top1=cat_tangyuan dist=0.3024 time=7.28s
+    [MISS] {A382AB57-213A-4C71-9566-B037DEEAF144}.png: no cat detected
+    [OK] {A89B50AA-CC06-48F6-B82B-A99B445BAF21}.png: top1=cat_tangyuan dist=0.2742 time=8.09s
+    [OK] {C406A0CE-0B2B-4245-A1DC-569E48994E28}.png: top1=cat_tangyuan dist=0.4357 time=7.82s
+    [OK] {CA1CF794-8B97-4027-8018-A9A677A653B7}.png: top1=cat_tangyuan dist=0.2515 time=9.20s
+    [OK] {E0CB6DE9-823C-4B7E-A97A-D2F97F7B6B45}.png: top1=cat_tangyuan dist=0.2635 time=8.93s
+    [OK] {E7AB0428-07C5-4A88-83AD-921B1217B5B2}.png: top1=cat_tangyuan dist=0.4129 time=9.87s
+    [OK] {FE686A07-4C00-4BD7-8E6B-ED6FE80709DB}.png: top1=cat_tangyuan dist=0.3858 time=13.23s
+
+  --- cat_xiaomai (UNREGISTERED) ---
+    [OK] {10AAE257-1269-4D09-BF0E-BA1EFEE5EEE0}.png: top1=cat_jvpi dist=0.4928 time=16.61s
+    [OK] {1841B6E0-5825-4E62-AACC-908925FAF265}.png: top1=cat_jvpi dist=0.4350 time=27.32s
+    [OK] {1B35EFB5-2050-459B-9FBC-9779A81025E3}.png: top1=cat_jvpi dist=0.4160 time=75.95s
+    [OK] {89321662-26AA-41E4-85D9-AB6749CE45E7}.png: top1=cat_jvpi dist=0.4753 time=11.72s
+    [OK] {A4F2BC61-D912-4038-A66B-2EE4D2B1C56B}.png: top1=cat_jvpi dist=0.4308 time=11.59s
+    [OK] {AE1CF6D6-F203-4D16-855B-622B2D6C3574}.png: top1=cat_jvpi dist=0.3997 time=8.99s
+    [OK] {D11CB7ED-8D42-4D0D-AD7F-F6F74F810AF8}.png: top1=cat_jvpi dist=0.4078 time=8.92s
+    [OK] {E92120D1-3D3E-402F-891E-1CF47856544D}.png: top1=cat_jvpi dist=0.4177 time=6.88s
+    [OK] {F4E59ECB-2C6C-4A04-8154-111E280C9627}.png: top1=cat_jvpi dist=0.4121 time=8.33s
+    [OK] {F71E39A1-0C34-499B-817D-381ED8325E2A}.png: top1=cat_jvpi dist=0.4134 time=6.11s
+
