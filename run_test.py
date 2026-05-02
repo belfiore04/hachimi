@@ -13,6 +13,9 @@ Usage:
 
     # Adjust threshold:
     python run_test.py --threshold 0.40
+
+    # Save report to a custom path:
+    python run_test.py --report_path results/test_report.txt
 """
 import os
 import sys
@@ -122,6 +125,30 @@ def build_gallery(pipeline, conn_params, gallery_dir):
     print(f"  Gallery built: {total} embeddings stored, {failed} images skipped.")
 
 
+def list_registered_cats(gallery_dir):
+    """Return cat folder names that are present in the gallery."""
+    cats = set()
+    for name in os.listdir(gallery_dir):
+        path = os.path.join(gallery_dir, name)
+        if os.path.isdir(path) and name != "videos":
+            cats.add(name)
+    return cats
+
+
+def count_images_by_cat(root_dir):
+    """Count image files in each direct child folder."""
+    counts = {}
+    for name in sorted(os.listdir(root_dir)):
+        path = os.path.join(root_dir, name)
+        if not os.path.isdir(path) or name == "videos":
+            continue
+        counts[name] = sum(
+            1 for file_name in os.listdir(path)
+            if file_name.lower().endswith((".jpg", ".jpeg", ".png"))
+        )
+    return counts
+
+
 # ==================== Search ====================
 
 def search_similar(conn_params, query_vector, top_k=5):
@@ -150,10 +177,7 @@ def search_similar(conn_params, query_vector, top_k=5):
 
 # ==================== Test Runner ====================
 
-UNREGISTERED_CAT = "cat_xiaomai"
-
-
-def run_test(pipeline, conn_params, query_dir, threshold):
+def run_test(pipeline, conn_params, query_dir, threshold, registered_cats):
     """Run recognition test on all query images. Returns structured results."""
     results = {}
 
@@ -162,7 +186,7 @@ def run_test(pipeline, conn_params, query_dir, threshold):
         if not os.path.isdir(cat_path):
             continue
 
-        is_registered = cat_dir != UNREGISTERED_CAT
+        is_registered = cat_dir in registered_cats
         results[cat_dir] = []
 
         for img_file in sorted(os.listdir(cat_path)):
@@ -179,6 +203,7 @@ def run_test(pipeline, conn_params, query_dir, threshold):
 
             if box is None:
                 entry.update(detected=False, top1=False, top3=False,
+                             decision_correct=False, decision="no_cat_detected",
                              top1_name=None, distance=None,
                              t_segment=0, t_extract=0, t_search=0)
                 entry["t_total"] = entry["t_detect"]
@@ -204,20 +229,25 @@ def run_test(pipeline, conn_params, query_dir, threshold):
             entry["detected"] = True
 
             if not matches:
-                entry.update(top1=False, top3=False, top1_name=None, distance=None)
+                entry.update(top1=False, top3=False, decision_correct=False,
+                             decision="unknown", top1_name=None, distance=None)
             else:
                 top1_name, top1_dist = matches[0]
                 top3_names = [m[0] for m in matches[:3]]
                 entry["top1_name"] = top1_name
                 entry["distance"] = top1_dist
+                accepted = top1_dist < threshold
+                entry["decision"] = top1_name if accepted else "unknown"
 
                 if is_registered:
                     entry["top1"] = top1_name == cat_dir
                     entry["top3"] = cat_dir in top3_names
+                    entry["decision_correct"] = accepted and top1_name == cat_dir
                 else:
                     # Unregistered: correct = rejected (distance >= threshold)
                     entry["top1"] = top1_dist >= threshold
                     entry["top3"] = entry["top1"]
+                    entry["decision_correct"] = not accepted
 
             results[cat_dir].append(entry)
 
@@ -226,41 +256,78 @@ def run_test(pipeline, conn_params, query_dir, threshold):
 
 # ==================== Report ====================
 
-def print_report(results, threshold):
-    registered = [k for k in results if k != UNREGISTERED_CAT]
+def print_report(results, threshold, registered_cats, gallery_counts=None,
+                 query_counts=None, report_path=None):
+    lines = []
+
+    def emit(line=""):
+        print(line)
+        lines.append(line)
+
+    registered = [k for k in results if k in registered_cats]
+    unregistered = [k for k in results if k not in registered_cats]
+
+    # ---------- Dataset summary ----------
+    if gallery_counts is not None and query_counts is not None:
+        emit("\n" + "=" * 70)
+        emit("  DATASET SUMMARY")
+        emit("=" * 70)
+        emit(f"  {'Cat':<22} {'Type':<14} {'Gallery':>8} {'Query':>8}")
+        emit("  " + "-" * 56)
+        for cat in sorted(set(gallery_counts) | set(query_counts)):
+            cat_type = "registered" if cat in registered_cats else "unregistered"
+            emit(f"  {cat:<22} {cat_type:<14} {gallery_counts.get(cat, 0):>8} {query_counts.get(cat, 0):>8}")
+        emit("  " + "-" * 56)
+        emit(f"  {'TOTAL':<22} {'':<14} {sum(gallery_counts.values()):>8} {sum(query_counts.values()):>8}")
 
     # ---------- Accuracy ----------
-    print("\n" + "=" * 70)
-    print("  ACCURACY RESULTS")
-    print("=" * 70)
-    print(f"  {'Cat':<22} {'N':>4}   {'Top-1':>8}   {'Top-3':>8}")
-    print("  " + "-" * 50)
+    emit("\n" + "=" * 70)
+    emit("  ACCURACY RESULTS")
+    emit("=" * 70)
+    emit(f"  {'Cat':<22} {'N':>4}   {'Top-1':>8}   {'Top-3':>8}")
+    emit("  " + "-" * 50)
 
-    sum_n = sum_t1 = sum_t3 = 0
+    sum_n = sum_t1 = sum_t3 = sum_decision = 0
     for cat in registered:
         entries = results[cat]
         n = len(entries)
         t1 = sum(1 for e in entries if e["top1"])
         t3 = sum(1 for e in entries if e["top3"])
-        print(f"  {cat:<22} {n:>4}   {t1/n*100:>7.1f}%   {t3/n*100:>7.1f}%")
+        if n:
+            emit(f"  {cat:<22} {n:>4}   {t1/n*100:>7.1f}%   {t3/n*100:>7.1f}%")
+        else:
+            emit(f"  {cat:<22} {n:>4}   {'N/A':>8}   {'N/A':>8}")
         sum_n += n
         sum_t1 += t1
         sum_t3 += t3
+        sum_decision += sum(1 for e in entries if e["decision_correct"])
 
-    print("  " + "-" * 50)
-    print(f"  {'TOTAL':<22} {sum_n:>4}   {sum_t1/sum_n*100:>7.1f}%   {sum_t3/sum_n*100:>7.1f}%")
+    emit("  " + "-" * 50)
+    if sum_n:
+        emit(f"  {'TOTAL':<22} {sum_n:>4}   {sum_t1/sum_n*100:>7.1f}%   {sum_t3/sum_n*100:>7.1f}%")
+        emit(f"\n  Known final decision accuracy: {sum_decision}/{sum_n} = {sum_decision/sum_n*100:.1f}%")
+    else:
+        emit(f"  {'TOTAL':<22} {sum_n:>4}   {'N/A':>8}   {'N/A':>8}")
 
-    if UNREGISTERED_CAT in results:
-        entries = results[UNREGISTERED_CAT]
-        n = len(entries)
-        rej = sum(1 for e in entries if e["top1"])
-        print(f"\n  Unregistered ({UNREGISTERED_CAT}):  {n} images, "
-              f"rejection rate = {rej/n*100:.1f}%")
+    if unregistered:
+        emit("\n  Unregistered cats:")
+        total_unknown_n = 0
+        total_unknown_rej = 0
+        for cat in unregistered:
+            entries = results[cat]
+            n = len(entries)
+            rej = sum(1 for e in entries if e["decision_correct"])
+            total_unknown_n += n
+            total_unknown_rej += rej
+            rate = rej / n * 100 if n else 0
+            emit(f"    {cat:<20} {n:>4} images, rejection rate = {rate:.1f}%")
+        total_rate = total_unknown_rej / total_unknown_n * 100 if total_unknown_n else 0
+        emit(f"    {'TOTAL':<20} {total_unknown_n:>4} images, rejection rate = {total_rate:.1f}%")
 
     # ---------- Timing ----------
-    print("\n" + "=" * 70)
-    print("  TIMING (seconds, excluding first cold-start request)")
-    print("=" * 70)
+    emit("\n" + "=" * 70)
+    emit("  TIMING (seconds, excluding first cold-start request)")
+    emit("=" * 70)
 
     all_entries = []
     for cat in results:
@@ -270,35 +337,44 @@ def print_report(results, threshold):
     warm = all_entries[1:] if len(all_entries) > 1 else all_entries
 
     if warm:
-        print(f"  {'Stage':<12} {'Mean':>8}  {'Median':>8}  {'P95':>8}")
-        print("  " + "-" * 42)
+        emit(f"  {'Stage':<12} {'Mean':>8}  {'Median':>8}  {'P95':>8}")
+        emit("  " + "-" * 42)
         for key, label in [("t_detect", "Detect"), ("t_segment", "Segment"),
                            ("t_extract", "Extract"), ("t_search", "Search"),
                            ("t_total", "Total")]:
             vals = [e[key] for e in warm]
-            print(f"  {label:<12} {np.mean(vals):>7.3f}s  {np.median(vals):>7.3f}s  "
-                  f"{np.percentile(vals, 95):>7.3f}s")
+            emit(f"  {label:<12} {np.mean(vals):>7.3f}s  {np.median(vals):>7.3f}s  "
+                 f"{np.percentile(vals, 95):>7.3f}s")
 
         cold = all_entries[0]
-        print(f"\n  Cold start (first request): {cold['t_total']:.2f}s")
+        emit(f"\n  Cold start (first request): {cold['t_total']:.2f}s")
 
     # ---------- Detail ----------
-    print("\n" + "=" * 70)
-    print("  DETAILED RESULTS")
-    print("=" * 70)
+    emit("\n" + "=" * 70)
+    emit("  DETAILED RESULTS")
+    emit("=" * 70)
 
     for cat in results:
-        is_reg = cat != UNREGISTERED_CAT
-        print(f"\n  --- {cat} {'(registered)' if is_reg else '(UNREGISTERED)'} ---")
+        is_reg = cat in registered_cats
+        emit(f"\n  --- {cat} {'(registered)' if is_reg else '(UNREGISTERED)'} ---")
         for e in results[cat]:
             mark = "OK" if e["top1"] else "MISS"
             if not e["detected"]:
-                print(f"    [{mark}] {e['file']}: no cat detected")
+                emit(f"    [{mark}] {e['file']}: no cat detected")
             else:
                 dist_str = f"{e['distance']:.4f}" if e['distance'] is not None else "N/A"
-                print(f"    [{mark}] {e['file']}: "
-                      f"top1={e['top1_name']} dist={dist_str} "
-                      f"time={e['t_total']:.2f}s")
+                emit(f"    [{mark}] {e['file']}: "
+                     f"top1={e['top1_name']} decision={e['decision']} dist={dist_str} "
+                     f"time={e['t_total']:.2f}s")
+
+    if report_path:
+        report_dir = os.path.dirname(report_path)
+        if report_dir:
+            os.makedirs(report_dir, exist_ok=True)
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+            f.write("\n")
+        print(f"\n  Report saved to: {report_path}")
 
 
 # ==================== Main ====================
@@ -320,6 +396,8 @@ def main():
     parser.add_argument("--db_password", default="123456")
     parser.add_argument("--db_name", default="cat_recognition")
     parser.add_argument("--rebuild", action="store_true", help="Force rebuild gallery embeddings")
+    parser.add_argument("--report_path", default="test_report.txt",
+                        help="Path to save the text report. Use an empty string to disable.")
     args = parser.parse_args()
 
     conn_params = dict(dbname=args.db_name, user=args.db_user,
@@ -348,13 +426,19 @@ def main():
     # Step 3: Build gallery
     print("\n[3/4] Building gallery embeddings...")
     build_gallery(pipeline, conn_params, args.gallery_dir)
+    registered_cats = list_registered_cats(args.gallery_dir)
+    gallery_counts = count_images_by_cat(args.gallery_dir)
+    query_counts = count_images_by_cat(args.query_dir)
+    print(f"  Registered cats: {', '.join(sorted(registered_cats))}")
 
     # Step 4: Run test
     print("\n[4/4] Running recognition test on query images...")
-    results = run_test(pipeline, conn_params, args.query_dir, args.threshold)
+    results = run_test(pipeline, conn_params, args.query_dir, args.threshold, registered_cats)
 
     # Report
-    print_report(results, args.threshold)
+    report_path = args.report_path or None
+    print_report(results, args.threshold, registered_cats,
+                 gallery_counts, query_counts, report_path)
     print()
 
 
