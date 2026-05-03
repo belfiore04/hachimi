@@ -14,6 +14,9 @@ Usage:
     # Adjust threshold:
     python run_test.py --threshold 0.40
 
+    # Compare multiple thresholds without rerunning model inference:
+    python run_test.py --thresholds 0.30,0.35,0.40,0.45,0.50
+
     # Save report to a custom path:
     python run_test.py --report_path results/test_report.txt
 """
@@ -256,8 +259,63 @@ def run_test(pipeline, conn_params, query_dir, threshold, registered_cats):
 
 # ==================== Report ====================
 
+def parse_thresholds(raw_thresholds):
+    """Parse comma-separated thresholds into a sorted unique list."""
+    if not raw_thresholds:
+        return []
+
+    thresholds = []
+    for value in raw_thresholds.split(","):
+        value = value.strip()
+        if not value:
+            continue
+        thresholds.append(float(value))
+
+    return sorted(set(thresholds))
+
+
+def summarize_threshold(results, threshold, registered_cats):
+    """Calculate decision metrics for one threshold from stored distances."""
+    known_n = known_top1 = known_top3 = known_final = 0
+    unknown_n = unknown_reject = 0
+
+    for cat, entries in results.items():
+        is_registered = cat in registered_cats
+
+        if is_registered:
+            known_n += len(entries)
+            known_top1 += sum(1 for e in entries if e["top1"])
+            known_top3 += sum(1 for e in entries if e["top3"])
+            known_final += sum(
+                1 for e in entries
+                if e["distance"] is not None
+                and e["distance"] < threshold
+                and e["top1_name"] == cat
+            )
+        else:
+            unknown_n += len(entries)
+            unknown_reject += sum(
+                1 for e in entries
+                if e["distance"] is not None and e["distance"] >= threshold
+            )
+
+    return {
+        "threshold": threshold,
+        "known_n": known_n,
+        "known_top1": known_top1,
+        "known_top3": known_top3,
+        "known_final": known_final,
+        "unknown_n": unknown_n,
+        "unknown_reject": unknown_reject,
+        "known_top1_rate": known_top1 / known_n * 100 if known_n else None,
+        "known_top3_rate": known_top3 / known_n * 100 if known_n else None,
+        "known_final_rate": known_final / known_n * 100 if known_n else None,
+        "unknown_reject_rate": unknown_reject / unknown_n * 100 if unknown_n else None,
+    }
+
+
 def print_report(results, threshold, registered_cats, gallery_counts=None,
-                 query_counts=None, report_path=None):
+                 query_counts=None, threshold_values=None, report_path=None):
     lines = []
 
     def emit(line=""):
@@ -323,6 +381,23 @@ def print_report(results, threshold, registered_cats, gallery_counts=None,
             emit(f"    {cat:<20} {n:>4} images, rejection rate = {rate:.1f}%")
         total_rate = total_unknown_rej / total_unknown_n * 100 if total_unknown_n else 0
         emit(f"    {'TOTAL':<20} {total_unknown_n:>4} images, rejection rate = {total_rate:.1f}%")
+
+    # ---------- Threshold comparison ----------
+    if threshold_values:
+        emit("\n" + "=" * 70)
+        emit("  THRESHOLD COMPARISON")
+        emit("=" * 70)
+        emit(f"  {'Threshold':>9} {'Top-1':>8} {'Top-3':>8} {'Known Final':>14} {'Unknown Reject':>16}")
+        emit("  " + "-" * 64)
+        for item in [summarize_threshold(results, t, registered_cats) for t in threshold_values]:
+            top1 = f"{item['known_top1_rate']:.1f}%" if item["known_top1_rate"] is not None else "N/A"
+            top3 = f"{item['known_top3_rate']:.1f}%" if item["known_top3_rate"] is not None else "N/A"
+            known_final = f"{item['known_final_rate']:.1f}%" if item["known_final_rate"] is not None else "N/A"
+            unknown_reject = f"{item['unknown_reject_rate']:.1f}%" if item["unknown_reject_rate"] is not None else "N/A"
+            emit(f"  {item['threshold']:>9.2f} {top1:>8} {top3:>8} {known_final:>14} {unknown_reject:>16}")
+
+        emit("\n  Note: Top-1 and Top-3 are ranking metrics and do not change with threshold.")
+        emit("  Known Final and Unknown Reject are threshold-dependent decision metrics.")
 
     # ---------- Timing ----------
     emit("\n" + "=" * 70)
@@ -391,6 +466,8 @@ def main():
     parser.add_argument("--gallery_dir", default="dataset/gallery")
     parser.add_argument("--query_dir", default="dataset/query")
     parser.add_argument("--threshold", type=float, default=0.35)
+    parser.add_argument("--thresholds", default="",
+                        help="Comma-separated thresholds for comparison, e.g. 0.30,0.35,0.40,0.45,0.50")
     parser.add_argument("--db_host", default="localhost")
     parser.add_argument("--db_user", default="postgres")
     parser.add_argument("--db_password", default="123456")
@@ -436,9 +513,10 @@ def main():
     results = run_test(pipeline, conn_params, args.query_dir, args.threshold, registered_cats)
 
     # Report
+    threshold_values = parse_thresholds(args.thresholds)
     report_path = args.report_path or None
     print_report(results, args.threshold, registered_cats,
-                 gallery_counts, query_counts, report_path)
+                 gallery_counts, query_counts, threshold_values, report_path)
     print()
 
 
